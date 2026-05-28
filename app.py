@@ -1,4 +1,6 @@
 import os
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
@@ -13,6 +15,23 @@ GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 # Configure Gemini API
 genai.configure(api_key=GEMINI_KEY)
 model = genai.GenerativeModel("gemini-2.5-flash")
+
+# --- Render Web Service Port Binding Integration ---
+class RenderHealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Bot is healthy and running!")
+
+    def log_message(self, format, *args):
+        pass  # Suppress internal server logging to keep your Render logs clean
+
+def run_health_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), RenderHealthCheckHandler)
+    server.serve_forever()
+# ---------------------------------------------------
 
 def split_message(text: str, max_length: int = 4000):
     """Splits text into chunks, prioritizing newlines to avoid cutting words or Markdown."""
@@ -59,6 +78,9 @@ def main():
     if not TELEGRAM_TOKEN or not GEMINI_KEY:
         print("Error: Missing TELEGRAM_BOT_TOKEN or GEMINI_API_KEY in environment.")
         return
+
+    # Start the web health check server in a daemon thread so it binds Render's expected port
+    threading.Thread(target=run_health_server, daemon=True).start()
 
     # Build the Application
     app = Application.builder().token(TELEGRAM_TOKEN).build()
